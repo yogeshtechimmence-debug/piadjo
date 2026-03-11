@@ -21,6 +21,7 @@ import {
   sendOtp,
   signin,
   ChangeStatus,
+  DriverStatus,
 } from "../../controller/AuthController/auth.controller.js";
 import upload from "../../middleware/imageUpload.js";
 import {
@@ -75,6 +76,7 @@ router.post("/send_rating", SendRating);
 
 // ===================== driver side api =============================
 
+router.post("/change_driver_status", DriverStatus);
 
 router.get("/get_vehicles", getVehicles);
 
@@ -105,7 +107,5 @@ router.post("/update_vehicle_type", upload.single("image"), updateVehicleType);
 router.post("/delete_vehicle_type", deleteVehicleType);
 
 // ===================== check new api =============================
-
-
 
 export default router;
