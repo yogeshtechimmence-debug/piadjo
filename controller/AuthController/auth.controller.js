@@ -117,102 +117,6 @@ export const sendOtp = async (req, res) => {
   }
 };
 
-// export const sendOtp = async (req, res) => {
-//   try {
-//     const { mobile } = req.body;
-
-//     if (!mobile) {
-//       return res.status(400).json({
-//         status: "0",
-//         message: "Mobile required",
-//         result: {},
-//       });
-//     }
-
-//     const otp = 1234;
-
-//     const [users] = await db.query("SELECT * FROM userdata WHERE mobile=?", [
-//       mobile,
-//     ]);
-
-//     let user;
-
-//     if (users.length > 0) {
-//       user = users[0];
-//     } else {
-//       const [insertResult] = await db.query(
-//         "INSERT INTO userdata (mobile) VALUES (?)",
-//         [mobile],
-//       );
-
-//       const [newUser] = await db.query("SELECT * FROM userdata WHERE id=?", [
-//         insertResult.insertId,
-//       ]);
-
-//       user = newUser[0];
-//     }
-
-//     const formattedUser = Object.fromEntries(
-//       Object.entries(user).map(([key, value]) => [
-//         key,
-//         value === null ? "" : value,
-//       ]),
-//     );
-//     // Vehicle find
-//     const [vehicles] = await db.query(
-//       "SELECT * FROM vehicles WHERE driver_id=?",
-//       [formattedUser.id],
-//     );
-
-//     let vehicle = null;
-
-//     if (vehicles.length > 0) {
-//       vehicle = vehicles[0];
-
-//       // null to ""
-//       vehicle = Object.fromEntries(
-//         Object.entries(vehicle).map(([key, value]) => [
-//           key,
-//           value === null ? "" : value,
-//         ]),
-//       );
-
-//       // JSON parse
-//       vehicle.vehicle_images = vehicle.vehicle_images
-//         ? JSON.parse(vehicle.vehicle_images)
-//         : [];
-
-//       vehicle.driving_licence_images = vehicle.driving_licence_images
-//         ? JSON.parse(vehicle.driving_licence_images)
-//         : [];
-
-//       vehicle.vehicle_registration_images = vehicle.vehicle_registration_images
-//         ? JSON.parse(vehicle.vehicle_registration_images)
-//         : [];
-
-//       vehicle.national_image = vehicle.national_image
-//         ? JSON.parse(vehicle.national_image)
-//         : [];
-//     }
-
-//     return res.json({
-//       status: "1",
-//       message: "OTP sent successfully",
-//       otp: `${otp}`,
-//       result: {
-//         ...formattedUser,
-//         ...(vehicle && { vehicle }),
-//       },
-//     });
-//   } catch (error) {
-//     console.log(error);
-//     return res.json({
-//       status: "0",
-//       message: "Server error",
-//     });
-//   }
-// };
-
 export const signin = async (req, res) => {
   try {
     const { mobile, otp } = req.body;
@@ -469,27 +373,6 @@ export const getProfile = async (req, res) => {
       }
     }
 
-    // let vehicleData = {};
-    // if (user.type === "DRIVER") {
-    //   const [vehicles] = await db.query(
-    //     "SELECT * FROM vehicles WHERE driver_id = ?",
-    //     [id],
-    //   );
-    //   if (vehicles.length > 0) {
-    //     const v = vehicles[0];
-    //     vehicleData = {
-    //       ...v,
-    //       vehicle_images: v.vehicle_images ? JSON.parse(v.vehicle_images) : [],
-    //       national_image: v.national_image ? JSON.parse(v.national_image) : [],
-    //       driving_licence_images: v.driving_licence_images
-    //         ? JSON.parse(v.driving_licence_images)
-    //         : [],
-    //       vehicle_registration_images: v.vehicle_registration_images
-    //         ? JSON.parse(v.vehicle_registration_images)
-    //         : [],
-    //     };
-    //   }
-    // }
 
     // Attach IMAGE_PATH to image
     if (formattedUser.image) {
@@ -537,18 +420,33 @@ export const updateProfile = async (req, res) => {
         message: "User not found",
       });
     }
-
-    // Check duplicate email/mobile
-    if (email || mobile) {
-      const [duplicate] = await db.query(
-        "SELECT id FROM userdata WHERE (email = ? OR mobile = ?) AND id != ?",
-        [email || "", mobile || "", id],
+    // Check duplicate only if email changed
+    if (email && email !== existingUser[0].email) {
+      const [emailCheck] = await db.query(
+        "SELECT id FROM userdata WHERE email = ? AND id != ?",
+        [email, id],
       );
 
-      if (duplicate.length > 0) {
+      if (emailCheck.length > 0) {
         return res.status(400).json({
           status: "0",
-          message: "Email or mobile already in use",
+          message: "Email already in use",
+          result: {},
+        });
+      }
+    }
+
+    // Check duplicate only if mobile changed
+    if (mobile && mobile !== existingUser[0].mobile) {
+      const [mobileCheck] = await db.query(
+        "SELECT id FROM userdata WHERE mobile = ? AND id != ?",
+        [mobile, id],
+      );
+
+      if (mobileCheck.length > 0) {
+        return res.status(400).json({
+          status: "0",
+          message: "Mobile already in use",
           result: {},
         });
       }
@@ -901,37 +799,6 @@ export const sendRequest = async (req, res) => {
   }
 };
 
-// export const getRequest = async (req, res) => {
-//   try {
-//     const { userId } = req.query;
-
-//     if (!userId) {
-//       return res.status(400).json({
-//         status: "0",
-//         message: "User id is required",
-//         result: {},
-//       });
-//     }
-
-//     const [requests] = await db.query(
-//       "SELECT * FROM requests WHERE user_id = ? ORDER BY id DESC",
-//       [userId],
-//     );
-
-//     return res.status(200).json({
-//       status: "1",
-//       message: "Requests fetched successfully",
-//       result: requests,
-//     });
-//   } catch (error) {
-//     console.error("Get request error:", error);
-//     return res.status(500).json({
-//       status: "0",
-//       message: "Server error",
-//     });
-//   }
-// };
-
 export const getRequest = async (req, res) => {
   try {
     const { userId } = req.query;
@@ -981,54 +848,6 @@ export const getRequest = async (req, res) => {
     });
   }
 };
-
-// export const ViewOffer = async (req, res) => {
-//   try {
-//     const { request_id, user_id } = req.body;
-
-//     if (!request_id || !user_id) {
-//       return res.status(400).json({
-//         status: "1",
-//         message: "request_id and user_id are required",
-//         result: {},
-//       });
-//     }
-
-//     const [offers] = await db.query(
-//       `
-//       SELECT
-//         bo.*,
-//         u.full_name AS driver_full_name,
-//         u.mobile AS driver_mobile,
-//         u.image AS driver_image,
-//         u.rating AS driver_rating
-//         FROM booking_offer bo
-//         JOIN userdata u ON bo.driver_id = u.id
-//         WHERE
-//         bo.request_id = ?
-//         AND bo.user_id = ?
-//         AND bo.status = 'PENDING'
-//       ORDER BY bo.id DESC
-//       `,
-//       [request_id, user_id],
-//     );
-
-//     return res.status(200).json({
-//       status: "1",
-//       message:
-//         offers.length > 0
-//           ? "Offers fetched successfully"
-//           : "No pending offers found",
-//       result: offers,
-//     });
-//   } catch (error) {
-//     console.error("ViewOffer error:", error);
-//     return res.status(500).json({
-//       status: "0",
-//       message: "Server error",
-//     });
-//   }
-// };
 
 export const ViewOffer = async (req, res) => {
   try {
@@ -1382,50 +1201,6 @@ export const ConfirmOffer = async (req, res) => {
   }
 };
 
-// export const cancelRide = async (req, res) => {
-//   try {
-//     const { offer_id, userid, driverId, cancel_reason} = req.body;
-
-//     if (!offer_id || !userid || !cancel_reason) {
-//       return res.status(400).json({
-//         status: "0",
-//         message: "offer_id and userid, cancel_reason are required",
-//         result: {},
-//       });
-//     }
-
-//     // Check booking offer
-//     const [offer] = await db.query(
-//       "SELECT * FROM booking_offer WHERE id = ? AND user_id = ?",
-//       [offer_id, userid],
-//     );
-
-//     if (offer.length === 0) {
-//       return res.status(404).json({
-//         status: "0",
-//         message: "Booking offer not found",
-//         result: {},
-//       });
-//     }
-
-//     // Update status to CANCEL
-//     await db.query("UPDATE booking_offer SET status = 'CANCEL' WHERE id = ?", [
-//       offer_id,
-//     ]);
-
-//     return res.status(200).json({
-//       status: 1,
-//       message: "Ride cancelled successfully",
-//     });
-//   } catch (error) {
-//     console.error("Cancel ride error:", error);
-//     return res.status(500).json({
-//       status: "0",
-//       message: "Server error",
-//     });
-//   }
-// };
-
 export const cancelRide = async (req, res) => {
   try {
     const { offer_id, userid, driverId, cancel_reason } = req.body;
@@ -1755,53 +1530,6 @@ export const deleteVehicleImage = async (req, res) => {
   }
 };
 
-// export const getAllRequestsForDriver = async (req, res) => {
-//   try {
-//     const { driverId } = req.query;
-
-//     if (!driverId) {
-//       return res.status(400).json({
-//         status: "0",
-//         message: "Driver id is required",
-//       });
-//     }
-
-//     const [requests] = await db.query(
-//       `
-//       SELECT
-//         r.*,
-//         u.full_name,
-//         u.image,
-//         u.mobile,
-//         v.vehicle_type
-//         FROM requests r
-//         JOIN userdata u ON r.user_id = u.id
-//         JOIN vehicles v ON v.driver_id = ?
-//         WHERE r.vehicle_type = v.vehicle_type
-//         AND r.id NOT IN (
-//         SELECT request_id
-//         FROM request_declines
-//         WHERE driver_id = ?
-//       )
-//       ORDER BY r.id DESC
-//       `,
-//       [driverId, driverId],
-//     );
-
-//     return res.status(200).json({
-//       status: "1",
-//       message: "Requests fetched successfully",
-//       result: requests,
-//     });
-//   } catch (error) {
-//     console.error("Get all requests error:", error);
-//     return res.status(500).json({
-//       status: "0",
-//       message: "Server error",
-//     });
-//   }
-// };
-
 export const getAllRequestsForDriver = async (req, res) => {
   try {
     const { driverId } = req.query;
@@ -1945,33 +1673,7 @@ export const SendOffer = async (req, res) => {
       ],
     );
 
-    // user ka fcm_token nikalo
-    // const [user] = await db.query(
-    //   "SELECT fcm_token FROM userdata WHERE id = ?",
-    //   [userId],
-    // );
-
-    // console.log(user[0].fcm_token)
-
-    // if (user.length > 0 && user[0].fcm_token) {
-    //   const message = {
-    //     token: user[0].fcm_token,
-    //     notification: {
-    //       title: "Offer Recived",
-    //       body: "Driver send you offer",
-    //     },
-    //     data: {
-    //       ride_id: String(id),
-    //       type: "send_offer",
-    //     },
-    //     android: {
-    //       priority: "high",
-    //     },
-    //   };
-
-    //   await admin.messaging().send(message);
-    // }
-
+    
     return res.status(200).json({
       status: "1",
       message: "Offer sent successfully",
@@ -2082,140 +1784,6 @@ export const GetRating = async (req, res) => {
 
 // ===================== check new api =============================
 
-// export const sendOtpTwilio = async (req, res) => {
-//   try {
-//     const { mobile } = req.body;
-
-//     if (!mobile) {
-//       return res.json({
-//         status: "0",
-//         message: "Mobile required",
-//       });
-//     }
-
-//     await client.verify.v2.services(serviceSid).verifications.create({
-//       to: `+91${mobile}`,
-//       channel: "sms",
-//     });
-
-//     return res.json({
-//       status: 1,
-//       message: "OTP sent successfully",
-//     });
-//   } catch (error) {
-//     console.log(error);
-//     return res.json({
-//       status: "0",
-//       message: "Failed to send OTP",
-//     });
-//   }
-// };
-
-// export const signUserTwilio = async (req, res) => {
-//   try {
-//     const { mobile, otp } = req.body;
-
-//     const verification = await client.verify.v2
-//       .services(serviceSid)
-//       .verificationChecks.create({
-//         to: `+91${mobile}`,
-//         code: otp,
-//       });
-
-//     if (verification.status !== "approved") {
-//       return res.json({
-//         status: "0",
-//         message: "Invalid OTP",
-//       });
-//     }
-
-//     const [users] = await db.query("SELECT * FROM userdata WHERE mobile=?", [
-//       mobile,
-//     ]);
-
-//     let userData;
-
-//     if (users.length === 0) {
-//       const [insert] = await db.query(
-//         "INSERT INTO userdata (mobile) VALUES (?)",
-//         [mobile],
-//       );
-
-//       const [newUser] = await db.query("SELECT * FROM userdata WHERE id=?", [
-//         insert.insertId,
-//       ]);
-
-//       userData = newUser[0];
-//     } else {
-//       userData = users[0];
-//     }
-
-//     return res.json({
-//       status: 1,
-//       message: "Login success",
-//       result: userData,
-//     });
-//   } catch (error) {
-//     console.log(error);
-//     return res.json({
-//       status: "0",
-//       message: "Server error",
-//     });
-//   }
-// };
-
-// export const signinUser = async (req, res) => {
-//   try {
-//     const { mobile, otp } = req.query;
-
-//     if (!mobile || !otp) {
-//       return res.json({
-//         status: "0",
-//         message: "mobile and otp required",
-//       });
-//     }
-
-//     if (otp !== "1234") {
-//       return res.json({
-//         status: "0",
-//         message: "Invalid OTP",
-//       });
-//     }
-
-//     const [users] = await db.query("SELECT * FROM userdata WHERE mobile=?", [
-//       mobile,
-//     ]);
-
-//     let userData;
-
-//     if (users.length === 0) {
-//       const [insert] = await db.query(
-//         "INSERT INTO userdata (mobile) VALUES (?)",
-//         [mobile],
-//       );
-
-//       const [newUser] = await db.query("SELECT * FROM userdata WHERE id=?", [
-//         insert.insertId,
-//       ]);
-
-//       userData = newUser[0];
-//     } else {
-//       userData = users[0];
-//     }
-
-//     return res.json({
-//       status: 1,
-//       message: "Login success",
-//       result: userData,
-//     });
-//   } catch (error) {
-//     console.log("ERROR:", error);
-//     return res.json({
-//       status: "0",
-//       message: error.message,
-//     });
-//   }
-// };
 
 export const sendMessage = async (req, res) => {
   try {
