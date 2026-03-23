@@ -1,4 +1,3 @@
-import bcrypt from "bcryptjs";
 import { db } from "../../util/db.js";
 import admin from "../../Config/firebase.js";
 import { getIO } from "../../Soket/socket.js";
@@ -372,7 +371,6 @@ export const getProfile = async (req, res) => {
         };
       }
     }
-
 
     // Attach IMAGE_PATH to image
     if (formattedUser.image) {
@@ -1673,7 +1671,6 @@ export const SendOffer = async (req, res) => {
       ],
     );
 
-    
     return res.status(200).json({
       status: "1",
       message: "Offer sent successfully",
@@ -1687,6 +1684,69 @@ export const SendOffer = async (req, res) => {
   }
 };
 
+// export const ChangeStatus = async (req, res) => {
+//   try {
+//     const { offer_id, driverId, status } = req.body;
+
+//     if (!offer_id || !driverId || !status) {
+//       return res.status(400).json({
+//         status: "0",
+//         message: "offer_id and driverId, status are required",
+//       });
+//     }
+
+//     // Check booking offer
+//     const [offer] = await db.query(
+//       "SELECT status FROM booking_offer WHERE id = ? AND driver_id = ?",
+//       [offer_id, driverId],
+//     );
+
+//     if (offer.length === 0) {
+//       return res.status(404).json({
+//         status: "0",
+//         message: "Booking offer not found",
+//       });
+//     }
+//     // Update status
+//     await db.query("UPDATE booking_offer SET status = ? WHERE id = ?", [
+//       status,
+//       offer_id,
+//     ]);
+
+//     if (user.length > 0 && user[0].fcm_token) {
+//       const message = {
+//         token: user[0].fcm_token,
+//         notification: {
+//           title: "Ride Confirmed",
+//           body: "You have successfully confirmed the ride",
+//         },
+//         data: {
+//           title: "Ride Confirmed",
+//           body: "You have successfully confirmed the ride",
+//           offer_id: String(offer_id),
+//           type: "send_offer",
+//         },
+//         android: {
+//           priority: "high",
+//         },
+//       };
+
+//       await admin.messaging().send(message);
+//     }
+
+//     return res.status(200).json({
+//       status: "1",
+//       message: `Ride status updated to ${status}`,
+//     });
+//   } catch (error) {
+//     console.error("Change status error:", error);
+//     return res.status(500).json({
+//       status: "0",
+//       message: "Server error",
+//     });
+//   }
+// };
+
 export const ChangeStatus = async (req, res) => {
   try {
     const { offer_id, driverId, status } = req.body;
@@ -1694,13 +1754,12 @@ export const ChangeStatus = async (req, res) => {
     if (!offer_id || !driverId || !status) {
       return res.status(400).json({
         status: "0",
-        message: "offer_id and driverId, status are required",
+        message: "offer_id, driverId and status are required",
       });
     }
 
-    // Check booking offer
     const [offer] = await db.query(
-      "SELECT status FROM booking_offer WHERE id = ? AND driver_id = ?",
+      "SELECT user_id FROM booking_offer WHERE id = ? AND driver_id = ?",
       [offer_id, driverId],
     );
 
@@ -1710,11 +1769,39 @@ export const ChangeStatus = async (req, res) => {
         message: "Booking offer not found",
       });
     }
-    // Update status
+
+    const userId = offer[0].user_id;
+
     await db.query("UPDATE booking_offer SET status = ? WHERE id = ?", [
       status,
       offer_id,
     ]);
+
+    const [user] = await db.query(
+      "SELECT fcm_token FROM userdata WHERE id = ?",
+      [userId],
+    );
+
+    if (user.length > 0 && user[0].fcm_token) {
+      const message = {
+        token: user[0].fcm_token,
+        notification: {
+          title: "Ride Confirmed",
+          body: `Your ride status is now ${status}`,
+        },
+        data: {
+          title: "Ride Confirmed",
+          body: `Your ride status is now ${status}`,
+          offer_id: String(offer_id),
+          type: "send_offer",
+        },
+        android: {
+          priority: "high",
+        },
+      };
+
+      await admin.messaging().send(message);
+    }
 
     return res.status(200).json({
       status: "1",
@@ -1783,7 +1870,6 @@ export const GetRating = async (req, res) => {
 };
 
 // ===================== check new api =============================
-
 
 export const sendMessage = async (req, res) => {
   try {

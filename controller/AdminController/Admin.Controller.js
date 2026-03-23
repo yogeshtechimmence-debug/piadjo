@@ -2,6 +2,53 @@ import { db } from "../../util/db.js";
 import fs from "fs";
 import path from "path";
 import nodemailer from "nodemailer";
+import jwt from "jsonwebtoken";
+
+export const adminLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        status: "0",
+        message: "Email and password are required",
+      });
+    }
+
+    const [rows] = await db.query(
+      "SELECT * FROM admin WHERE email = ? AND password = ?",
+      [email, password],
+    );
+
+    if (rows.length === 0) {
+      return res.status(401).json({
+        status: "0",
+        message: "Invalid email or password",
+      });
+    }
+
+    const admin = rows[0];
+
+    const token = jwt.sign(
+      { adminId: admin.id, email: admin.email },
+      `${process.env.JWT_SECRET}`,
+      { expiresIn: "7d" },
+    );
+
+    return res.status(200).json({
+      status: "1",
+      message: "Login successful",
+      token: token,
+      data: admin,
+    });
+  } catch (error) {
+    console.log("Login Error:", error);
+    return res.status(500).json({
+      status: "0",
+      message: "Internal server error",
+    });
+  }
+};
 
 export const getUsers = async (req, res) => {
   try {
@@ -394,191 +441,6 @@ export const AllPendingRequest = async (req, res) => {
   }
 };
 
-// export const getAllBookingOffers = async (req, res) => {
-//   try {
-//     let { status, page = 1, limit = 10, search = "" } = req.query;
-
-//     if (!status) {
-//       return res.status(400).json({
-//         status: "0",
-//         message: "Status is required",
-//       });
-//     }
-
-//     page = parseInt(page);
-//     limit = parseInt(limit);
-//     const offset = (page - 1) * limit;
-
-//     let searchQuery = "";
-//     let values = [status];
-
-//     if (search) {
-//       searchQuery = `
-//         AND (
-//           u.full_name LIKE ?
-//           OR d.full_name LIKE ?
-//           OR u.mobile LIKE ?
-//           OR d.mobile LIKE ?
-//           OR r.vehicle_type LIKE ?
-//           OR r.goods_type LIKE ?
-//           OR bo.id LIKE ?
-//         )
-//       `;
-
-//       values.push(
-//         `%${search}%`,
-//         `%${search}%`,
-//         `%${search}%`,
-//         `%${search}%`,
-//         `%${search}%`,
-//         `%${search}%`,
-//         `%${search}%`,
-//       );
-//     }
-
-//     const [rows] = await db.query(
-//       `SELECT
-//         -- offer
-//         bo.id,
-//         bo.offer_price,
-//         bo.estimate_time,
-//         bo.message,
-//         bo.status,
-//         bo.created_at,
-
-//         -- user
-//         u.id AS user_id,
-//         u.full_name AS user_name,
-//         u.mobile AS user_mobile,
-//         u.email AS user_email,
-//         u.image AS user_image,
-//         u.lat AS user_lat,
-//         u.lng AS user_lng,
-
-//         -- driver
-//         d.id AS driver_id,
-//         d.full_name AS driver_name,
-//         d.mobile AS driver_mobile,
-//         d.email AS driver_email,
-//         d.image AS driver_image,
-//         d.lat AS driver_lat,
-//         d.lng AS driver_lng,
-//         d.rating AS driver_rating,
-
-//         -- request
-//         r.id AS request_id,
-//         r.vehicle_type,
-//         r.drop_address,
-//         r.drop_lat,
-//         r.drop_lng,
-//         r.pick_address,
-//         r.pick_lat,
-//         r.pick_lng,
-//         r.price,
-//         r.goods_type,
-//         r.total_weight,
-//         r.number_of_items,
-//         r.extra_service,
-//         r.image AS request_image,
-//         r.notes,
-//         r.date,
-//         r.time,
-//         r.temperature,
-//         r.total_km
-
-//       FROM booking_offer bo
-
-//       LEFT JOIN userdata u ON bo.user_id = u.id
-//       LEFT JOIN userdata d ON bo.driver_id = d.id
-//       LEFT JOIN requests r ON bo.request_id = r.id
-
-//       WHERE bo.status = ? ${searchQuery}
-
-//       ORDER BY bo.id DESC
-//       LIMIT ? OFFSET ?`,
-//       [...values, limit, offset],
-//     );
-
-//     const [count] = await db.query(
-//       `SELECT COUNT(*) AS total
-//        FROM booking_offer bo
-//        LEFT JOIN userdata u ON bo.user_id = u.id
-//        LEFT JOIN userdata d ON bo.driver_id = d.id
-//        LEFT JOIN requests r ON bo.request_id = r.id
-//        WHERE bo.status = ? ${searchQuery}`,
-//       values,
-//     );
-
-//     const total = count[0].total;
-//     const totalPages = Math.ceil(total / limit);
-
-//     const result = rows.map((item) => ({
-//       id: item.id,
-//       offer_price: item.offer_price,
-//       estimate_time: item.estimate_time,
-//       message: item.message,
-//       status: item.status,
-//       created_at: item.created_at,
-
-//       request_id: item.request_id,
-//       vehicle_type: item.vehicle_type,
-//       drop_address: item.drop_address,
-//       drop_lat: item.drop_lat,
-//       drop_lng: item.drop_lng,
-//       pick_address: item.pick_address,
-//       pick_lat: item.pick_lat,
-//       pick_lng: item.pick_lng,
-//       price: item.price,
-//       goods_type: item.goods_type,
-//       total_weight: item.total_weight,
-//       number_of_items: item.number_of_items,
-//       extra_service: item.extra_service,
-//       image: item.request_image,
-//       notes: item.notes,
-//       date: item.date,
-//       time: item.time,
-//       temperature: item.temperature,
-//       total_km: item.total_km,
-
-//       userDetails: {
-//         id: item.user_id,
-//         full_name: item.user_name,
-//         mobile: item.user_mobile,
-//         email: item.user_email,
-//         image: `${process.env.IMAGE_PATH}${item.user_image}`,
-//         lat: item.user_lat,
-//         lng: item.user_lng,
-//       },
-
-//       driverDetails: {
-//         id: item.driver_id,
-//         full_name: item.driver_name,
-//         mobile: item.driver_mobile,
-//         email: item.driver_email,
-//         image: `${process.env.IMAGE_PATH}${item.driver_image}`,
-//         lat: item.driver_lat,
-//         lng: item.driver_lng,
-//         rating: item.driver_rating,
-//       },
-//     }));
-
-//     return res.status(200).json({
-//       status: "1",
-//       message: "Bookings fetched successfully",
-//       result,
-//       totalPages,
-//       total,
-//       currentPage: page,
-//     });
-//   } catch (error) {
-//     console.error(error);
-//     return res.status(500).json({
-//       status: "0",
-//       message: "Server error",
-//     });
-//   }
-// };
-
 export const getAllBookingOffers = async (req, res) => {
   try {
     let { status, page = 1, limit = 10, search = "" } = req.query;
@@ -970,8 +832,7 @@ export const getAllVehicles = async (req, res) => {
         vehicle_images,
         driving_licence_images,
         vehicle_registration_images,
-        national_image
-        
+        national_image,
       };
     });
 
@@ -1002,7 +863,7 @@ export const Approval = async (req, res) => {
 
     const [rows] = await db.query(
       "SELECT approved FROM userdata WHERE id = ?",
-      [userId]
+      [userId],
     );
 
     if (rows.length === 0) {
@@ -1014,10 +875,10 @@ export const Approval = async (req, res) => {
 
     const newStatus = rows[0].approved === "YES" ? "NO" : "YES";
 
-    await db.query(
-      "UPDATE userdata SET approved = ? WHERE id = ?",
-      [newStatus, userId]
-    );
+    await db.query("UPDATE userdata SET approved = ? WHERE id = ?", [
+      newStatus,
+      userId,
+    ]);
 
     return res.status(200).json({
       status: "1",
@@ -1045,7 +906,7 @@ export const BlockUnblobk = async (req, res) => {
 
     const [rows] = await db.query(
       "SELECT block_unblock FROM userdata WHERE id = ?",
-      [userId]
+      [userId],
     );
 
     if (rows.length === 0) {
@@ -1055,13 +916,12 @@ export const BlockUnblobk = async (req, res) => {
       });
     }
 
-    const newStatus =
-      rows[0].block_unblock === "BLOCK" ? "UNBLOCK" : "BLOCK";
+    const newStatus = rows[0].block_unblock === "BLOCK" ? "UNBLOCK" : "BLOCK";
 
-    await db.query(
-      "UPDATE userdata SET block_unblock = ? WHERE id = ?",
-      [newStatus, userId]
-    );
+    await db.query("UPDATE userdata SET block_unblock = ? WHERE id = ?", [
+      newStatus,
+      userId,
+    ]);
 
     return res.status(200).json({
       status: "1",
@@ -1074,4 +934,4 @@ export const BlockUnblobk = async (req, res) => {
       message: "Server error",
     });
   }
-};  
+};

@@ -33,6 +33,7 @@ import {
   AddGoodsType,
   addPage,
   addVehicleType,
+  adminLogin,
   AllPendingRequest,
   Approval,
   BlockUnblobk,
@@ -115,6 +116,8 @@ router.post("/change_status", ChangeStatus);
 router.get("/get_rating", GetRating);
 
 // ===================== admin side api =============================
+
+router.post("/admin_login", adminLogin);
 
 router.get("/get_all_user", getUsers);
 
