@@ -331,7 +331,18 @@ export const getProfile = async (req, res) => {
       ]),
     );
 
-    let vehicleData = {};
+    let vehicleData = {
+      id: "",
+      driver_id: "",
+      vehicle_type: "",
+      vehicle_number: "",
+      vehicle_capacity: "",
+      vehicle_images: [],
+      national_image: [],
+      driving_licence_images: [],
+      vehicle_registration_images: [],
+      created_at: "",
+    };
 
     if (user.type === "DRIVER") {
       const [vehicles] = await db.query(
@@ -1211,7 +1222,6 @@ export const cancelRide = async (req, res) => {
       });
     }
 
-    // Check booking offer only by offer_id
     const [offer] = await db.query("SELECT * FROM booking_offer WHERE id = ?", [
       offer_id,
     ]);
@@ -1224,11 +1234,64 @@ export const cancelRide = async (req, res) => {
       });
     }
 
-    // Cancel ride
+    const userId = offer[0].user_id;
+    const driver_Id = offer[0].driver_id;
+
     await db.query(
       "UPDATE booking_offer SET status = 'CANCEL', cancel_reason = ? WHERE id = ?",
       [cancel_reason, offer_id],
     );
+
+    // let fcm_token = null;
+    // let title = "";
+    // let body = "";
+
+    // if (userid) {
+    //   const [driver] = await db.query(
+    //     "SELECT fcm_token FROM userdata WHERE id = ?",
+    //     [driver_Id],
+    //   );
+
+    //   if (driver.length > 0) {
+    //     fcm_token = driver[0].fcm_token;
+    //   }
+
+    //   title = "Ride Cancelled";
+    //   body = "User has cancelled the ride";
+    // } else if (driverId) {
+    //   const [user] = await db.query(
+    //     "SELECT fcm_token FROM userdata WHERE id = ?",
+    //     [userId],
+    //   );
+
+    //   if (user.length > 0) {
+    //     fcm_token = user[0].fcm_token;
+    //   }
+
+    //   title = "Ride Cancelled";
+    //   body = "Driver has cancelled the ride";
+    // }
+
+    // if (fcm_token) {
+    //   const message = {
+    //     token: fcm_token,
+    //     notification: {
+    //       title,
+    //       body,
+    //     },
+    //     data: {
+    //       title,
+    //       body,
+    //       offer_id: String(offer_id),
+    //       type: "cancel_ride",
+    //     },
+    //     android: {
+    //       priority: "high",
+    //     },
+    //   };
+
+    //   await admin.messaging().send(message);
+    // }
 
     return res.status(200).json({
       status: 1,
@@ -1684,69 +1747,6 @@ export const SendOffer = async (req, res) => {
   }
 };
 
-// export const ChangeStatus = async (req, res) => {
-//   try {
-//     const { offer_id, driverId, status } = req.body;
-
-//     if (!offer_id || !driverId || !status) {
-//       return res.status(400).json({
-//         status: "0",
-//         message: "offer_id and driverId, status are required",
-//       });
-//     }
-
-//     // Check booking offer
-//     const [offer] = await db.query(
-//       "SELECT status FROM booking_offer WHERE id = ? AND driver_id = ?",
-//       [offer_id, driverId],
-//     );
-
-//     if (offer.length === 0) {
-//       return res.status(404).json({
-//         status: "0",
-//         message: "Booking offer not found",
-//       });
-//     }
-//     // Update status
-//     await db.query("UPDATE booking_offer SET status = ? WHERE id = ?", [
-//       status,
-//       offer_id,
-//     ]);
-
-//     if (user.length > 0 && user[0].fcm_token) {
-//       const message = {
-//         token: user[0].fcm_token,
-//         notification: {
-//           title: "Ride Confirmed",
-//           body: "You have successfully confirmed the ride",
-//         },
-//         data: {
-//           title: "Ride Confirmed",
-//           body: "You have successfully confirmed the ride",
-//           offer_id: String(offer_id),
-//           type: "send_offer",
-//         },
-//         android: {
-//           priority: "high",
-//         },
-//       };
-
-//       await admin.messaging().send(message);
-//     }
-
-//     return res.status(200).json({
-//       status: "1",
-//       message: `Ride status updated to ${status}`,
-//     });
-//   } catch (error) {
-//     console.error("Change status error:", error);
-//     return res.status(500).json({
-//       status: "0",
-//       message: "Server error",
-//     });
-//   }
-// };
-
 export const ChangeStatus = async (req, res) => {
   try {
     const { offer_id, driverId, status } = req.body;
@@ -1777,31 +1777,31 @@ export const ChangeStatus = async (req, res) => {
       offer_id,
     ]);
 
-    const [user] = await db.query(
-      "SELECT fcm_token FROM userdata WHERE id = ?",
-      [userId],
-    );
+    // const [user] = await db.query(
+    //   "SELECT fcm_token FROM userdata WHERE id = ?",
+    //   [userId],
+    // );
 
-    if (user.length > 0 && user[0].fcm_token) {
-      const message = {
-        token: user[0].fcm_token,
-        notification: {
-          title: "Ride Confirmed",
-          body: `Your ride status is now ${status}`,
-        },
-        data: {
-          title: "Ride Confirmed",
-          body: `Your ride status is now ${status}`,
-          offer_id: String(offer_id),
-          type: "send_offer",
-        },
-        android: {
-          priority: "high",
-        },
-      };
+    // if (user.length > 0 && user[0].fcm_token) {
+    //   const message = {
+    //     token: user[0].fcm_token,
+    //     notification: {
+    //       title: "Ride Status",
+    //       body: `Your ride status is now ${status}`,
+    //     },
+    //     data: {
+    //       title: "Ride Status",
+    //       body: `Your ride status is now ${status}`,
+    //       offer_id: String(offer_id),
+    //       type: "send_offer",
+    //     },
+    //     android: {
+    //       priority: "high",
+    //     },
+    //   };
 
-      await admin.messaging().send(message);
-    }
+    //   await admin.messaging().send(message);
+    // }
 
     return res.status(200).json({
       status: "1",
@@ -1917,13 +1917,13 @@ export const sendMessage = async (req, res) => {
     console.log("EMIT ROOM:", `OFFER_${offer_id}`);
 
     res.json({
-      status: 1,
+      status: "1",
       message: "Message sent",
-      data: newMessage,
+      result: newMessage,
     });
   } catch (err) {
     res.status(500).json({
-      status: 0,
+      status: "0",
       message: err.message,
     });
   }
@@ -1941,12 +1941,12 @@ export const getChatHistory = async (req, res) => {
     );
 
     res.json({
-      status: 1,
-      data: chats,
+      status: "1",
+      result: chats,
     });
   } catch (error) {
     res.json({
-      status: 0,
+      status: "0",
       message: error.message,
     });
   }
@@ -1990,12 +1990,12 @@ export const getChatList = async (req, res) => {
     );
 
     res.json({
-      status: 1,
-      data: chats,
+      status: "1",
+      result: chats,
     });
   } catch (error) {
     res.json({
-      status: 0,
+      status: "0",
       message: error.message,
     });
   }
@@ -2027,12 +2027,12 @@ export const getSingleChat = async (req, res) => {
     );
 
     res.json({
-      status: 1,
+      status: "1",
       data: chats,
     });
   } catch (error) {
     res.json({
-      status: 0,
+      status: "0",
       message: error.message,
     });
   }
