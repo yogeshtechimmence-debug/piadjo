@@ -1,48 +1,57 @@
 import { db } from "../../util/db.js";
 import admin from "../../Config/firebase.js";
 import { getIO } from "../../Soket/socket.js";
+import Stripe from "stripe";
+import dotenv from "dotenv";
+dotenv.config();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ===================== Common api =============================
 
 export const sendOtp = async (req, res) => {
   try {
-    const { mobile, fcm_token } = req.body;
+    const { mobile, fcm_token, type } = req.body;
 
-    if (!mobile) {
+    if (!mobile || !type) {
       return res.status(400).json({
         status: "0",
-        message: "Mobile required",
-        result: {},
+        message: "Mobile and type required",
       });
     }
 
     const otp = 1234;
 
-    // mobile se user find karo
-    const [users] = await db.query("SELECT * FROM userdata WHERE mobile = ?", [
-      mobile,
-    ]);
+    // 🔹 Step 1: Mobile check karo (type ignore karke)
+    const [existingMobile] = await db.query(
+      "SELECT * FROM userdata WHERE mobile = ?",
+      [mobile],
+    );
 
     let user;
 
-    if (users.length > 0) {
-      // user exist hai → fcm_token update
-      await db.query("UPDATE userdata SET fcm_token = ? WHERE mobile = ?", [
-        fcm_token,
-        mobile,
-      ]);
+    if (existingMobile.length > 0) {
+      const matchedUser = existingMobile.find((u) => u.type === type);
 
-      const [updatedUser] = await db.query(
-        "SELECT * FROM userdata WHERE mobile = ?",
-        [mobile],
-      );
+      if (matchedUser) {
+        await db.query("UPDATE userdata SET fcm_token = ? WHERE id = ?", [
+          fcm_token,
+          matchedUser.id,
+        ]);
 
-      user = updatedUser[0];
+        user = {
+          ...matchedUser,
+          fcm_token,
+        };
+      } else {
+        return res.status(400).json({
+          status: "0",
+          message: "Mobile number already exists with different type",
+        });
+      }
     } else {
-      // user nahi hai → new user create + fcm_token save
       const [insertResult] = await db.query(
-        "INSERT INTO userdata (mobile, fcm_token) VALUES (?, ?)",
-        [mobile, fcm_token],
+        "INSERT INTO userdata (mobile, fcm_token, type) VALUES (?, ?, ?)",
+        [mobile, fcm_token, type],
       );
 
       const [newUser] = await db.query("SELECT * FROM userdata WHERE id = ?", [
@@ -323,11 +332,14 @@ export const getProfile = async (req, res) => {
 
     const user = userdata[0];
 
-    // null → "" convert
     const formattedUser = Object.fromEntries(
       Object.entries(user).map(([key, value]) => [
         key,
-        value === null ? "" : value,
+        value === null
+          ? ""
+          : typeof value === "number"
+            ? value.toString()
+            : value,
       ]),
     );
 
@@ -353,15 +365,28 @@ export const getProfile = async (req, res) => {
       if (vehicles.length > 0) {
         const v = vehicles[0];
 
+        const convertNumbersToString = (obj) => {
+          return Object.fromEntries(
+            Object.entries(obj).map(([key, value]) => [
+              key,
+              typeof value === "number" ? value.toString() : value,
+            ]),
+          );
+        };
+
         const attachPathToObjects = (arr) =>
           arr
-            ? arr.map((obj) => ({
-                ...obj,
-                url: `${process.env.IMAGE_PATH}${obj.url}`,
-              }))
+            ? arr.map((obj) =>
+                convertNumbersToString({
+                  ...obj,
+                  url: obj.url?.startsWith("http")
+                    ? obj.url
+                    : `${process.env.IMAGE_PATH}${obj.url}`,
+                }),
+              )
             : [];
 
-        vehicleData = {
+        vehicleData = convertNumbersToString({
           ...v,
           vehicle_images: attachPathToObjects(
             v.vehicle_images ? JSON.parse(v.vehicle_images) : [],
@@ -379,11 +404,10 @@ export const getProfile = async (req, res) => {
               ? JSON.parse(v.vehicle_registration_images)
               : [],
           ),
-        };
+        });
       }
     }
 
-    // Attach IMAGE_PATH to image
     if (formattedUser.image) {
       formattedUser.image = `${process.env.IMAGE_PATH}${formattedUser.image}`;
     }
@@ -702,6 +726,64 @@ export const GetNotification = async (req, res) => {
   }
 };
 
+export const deleteAccount = async (req, res) => {
+  try {
+    const { id, type } = req.body;
+
+    if (!id || !type) {
+      return res.status(400).json({
+        status: "0",
+        message: "id and type are required",
+      });
+    }
+
+    const [user] = await db.query(
+      "SELECT ride_status FROM userdata WHERE id = ? AND type = ?",
+      [id, type],
+    );
+
+    if (user.length === 0) {
+      return res.status(404).json({
+        status: "0",
+        message: "Account not found",
+      });
+    }
+
+    if (user[0].ride_status === "YES") {
+      return res.status(400).json({
+        status: "0",
+        message: "You cannot delete account while ride is active",
+      });
+    }
+
+    if (type === "USER") {
+      await db.query("DELETE FROM requests WHERE user_id = ?", [id]);
+    }
+
+    if (type === "DRIVER") {
+      await db.query(
+        "DELETE FROM booking_offer WHERE driver_id = ? AND status = 'PENDING'",
+        [id],
+      );
+
+      await db.query("DELETE FROM vehicles WHERE driver_id = ?", [id]);
+    }
+
+    await db.query("DELETE FROM userdata WHERE id = ?", [id]);
+
+    return res.status(200).json({
+      status: "1",
+      message: "Account deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete account error:", error);
+    return res.status(500).json({
+      status: "0",
+      message: "Server error",
+    });
+  }
+};
+
 // ===================== USER side api =============================
 
 export const sendRequest = async (req, res) => {
@@ -778,6 +860,31 @@ export const sendRequest = async (req, res) => {
         temperature,
       ],
     );
+
+    const [drivers] = await db.query(
+      "SELECT fcm_token FROM userdata WHERE type = 'DRIVER' AND status = 'ACTIVE'",
+    );
+
+    const tokens = drivers.map((driver) => driver.fcm_token).filter((token) => token);
+
+    if (tokens.length > 0) {
+      const message = {
+        tokens,
+        notification: {
+          title: "New Request",
+          body: "User send New Request",
+        },
+        data: {
+          title: "New Request",
+          body: "User send New Request",
+        },
+        android: {
+          priority: "high",
+        },
+      };
+
+      await admin.messaging().sendMulticast(message);
+    }
 
     // Insert ke baad data fetch karo
     const [requestData] = await db.query(
@@ -1038,7 +1145,7 @@ export const ConfirmOffer = async (req, res) => {
 
     //  Check request belongs to user
     const [requestData] = await connection.query(
-      `SELECT 
+      `SELECT
        vehicle_type,
        drop_address,
        drop_lat,
@@ -1057,7 +1164,7 @@ export const ConfirmOffer = async (req, res) => {
        time,
        temperature,
        total_km
-      FROM requests 
+      FROM requests
       WHERE id = ? AND user_id = ?`,
       [request_id, userid],
     );
@@ -1074,8 +1181,8 @@ export const ConfirmOffer = async (req, res) => {
     }
     //  Update selected offer to SCHEDULED
     const [updateResult] = await connection.query(
-      `UPDATE booking_offer 
-          SET 
+      `UPDATE booking_offer
+          SET
           status = 'SCHEDULED',
           vehicle_type = ?,
           drop_address = ?,
@@ -1242,56 +1349,56 @@ export const cancelRide = async (req, res) => {
       [cancel_reason, offer_id],
     );
 
-    // let fcm_token = null;
-    // let title = "";
-    // let body = "";
+    let fcm_token = null;
+    let title = "";
+    let body = "";
 
-    // if (userid) {
-    //   const [driver] = await db.query(
-    //     "SELECT fcm_token FROM userdata WHERE id = ?",
-    //     [driver_Id],
-    //   );
+    if (userid) {
+      const [driver] = await db.query(
+        "SELECT fcm_token FROM userdata WHERE id = ?",
+        [driver_Id],
+      );
 
-    //   if (driver.length > 0) {
-    //     fcm_token = driver[0].fcm_token;
-    //   }
+      if (driver.length > 0) {
+        fcm_token = driver[0].fcm_token;
+      }
 
-    //   title = "Ride Cancelled";
-    //   body = "User has cancelled the ride";
-    // } else if (driverId) {
-    //   const [user] = await db.query(
-    //     "SELECT fcm_token FROM userdata WHERE id = ?",
-    //     [userId],
-    //   );
+      title = "Ride Cancelled";
+      body = "User has cancelled the ride";
+    } else if (driverId) {
+      const [user] = await db.query(
+        "SELECT fcm_token FROM userdata WHERE id = ?",
+        [userId],
+      );
 
-    //   if (user.length > 0) {
-    //     fcm_token = user[0].fcm_token;
-    //   }
+      if (user.length > 0) {
+        fcm_token = user[0].fcm_token;
+      }
 
-    //   title = "Ride Cancelled";
-    //   body = "Driver has cancelled the ride";
-    // }
+      title = "Ride Cancelled";
+      body = "Driver has cancelled the ride";
+    }
 
-    // if (fcm_token) {
-    //   const message = {
-    //     token: fcm_token,
-    //     notification: {
-    //       title,
-    //       body,
-    //     },
-    //     data: {
-    //       title,
-    //       body,
-    //       offer_id: String(offer_id),
-    //       type: "cancel_ride",
-    //     },
-    //     android: {
-    //       priority: "high",
-    //     },
-    //   };
+    if (fcm_token) {
+      const message = {
+        token: fcm_token,
+        notification: {
+          title,
+          body,
+        },
+        data: {
+          title,
+          body,
+          offer_id: String(offer_id),
+          type: "cancel_ride",
+        },
+        android: {
+          priority: "high",
+        },
+      };
 
-    //   await admin.messaging().send(message);
-    // }
+      await admin.messaging().send(message);
+    }
 
     return res.status(200).json({
       status: 1,
@@ -1463,8 +1570,8 @@ export const getVehicles = async (req, res) => {
 
 export const updateVehicle = async (req, res) => {
   try {
-    const { vehicle_id } = req.query;
-    const { vehicle_type, vehicle_number, vehicle_capacity } = req.body;
+    const { vehicle_id, vehicle_type, vehicle_number, vehicle_capacity } =
+      req.body;
 
     if (!vehicle_id) {
       return res.status(400).json({
@@ -1474,7 +1581,7 @@ export const updateVehicle = async (req, res) => {
       });
     }
 
-    // vehicle find
+    // Check vehicle exist
     const [vehicleData] = await db.query(
       "SELECT * FROM vehicles WHERE id = ?",
       [vehicle_id],
@@ -1488,17 +1595,99 @@ export const updateVehicle = async (req, res) => {
       });
     }
 
+    const existingVehicle = vehicleData[0];
+
+    let updateFields = [];
+    let updateValues = [];
+
+    // ========= TEXT FIELDS =========
+
+    if (vehicle_type) {
+      updateFields.push("vehicle_type = ?");
+      updateValues.push(vehicle_type);
+    }
+
+    if (vehicle_number) {
+      updateFields.push("vehicle_number = ?");
+      updateValues.push(vehicle_number);
+    }
+
+    if (vehicle_capacity) {
+      updateFields.push("vehicle_capacity = ?");
+      updateValues.push(vehicle_capacity);
+    }
+
+    // ========= IMAGE HANDLING =========
+
+    const processImages = (files, existingData) => {
+      if (!files) return null;
+
+      const parsedExisting = existingData ? JSON.parse(existingData) : [];
+
+      const newImages = files.map((file, index) => ({
+        id: parsedExisting.length + index + 1,
+        url: `/uploads/${file.filename}`,
+      }));
+
+      return JSON.stringify([...parsedExisting, ...newImages]);
+    };
+
+    // vehicle images
+    const vehicleImages = processImages(
+      req.files?.vehicle_image,
+      existingVehicle.vehicle_images,
+    );
+    if (vehicleImages) {
+      updateFields.push("vehicle_images = ?");
+      updateValues.push(vehicleImages);
+    }
+
+    // driving licence
+    const licenceImages = processImages(
+      req.files?.driving_licence_image,
+      existingVehicle.driving_licence_images,
+    );
+    if (licenceImages) {
+      updateFields.push("driving_licence_images = ?");
+      updateValues.push(licenceImages);
+    }
+
+    // registration
+    const registrationImages = processImages(
+      req.files?.vehicle_registration_image,
+      existingVehicle.vehicle_registration_images,
+    );
+    if (registrationImages) {
+      updateFields.push("vehicle_registration_images = ?");
+      updateValues.push(registrationImages);
+    }
+
+    // national image
+    const nationalImages = processImages(
+      req.files?.national_image,
+      existingVehicle.national_image,
+    );
+    if (nationalImages) {
+      updateFields.push("national_image = ?");
+      updateValues.push(nationalImages);
+    }
+
+    // ========= FINAL UPDATE =========
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        status: "0",
+        message: "No data provided to update",
+      });
+    }
+
     await db.query(
-      `UPDATE vehicles 
-       SET vehicle_type = ?, 
-           vehicle_number = ?, 
-           vehicle_capacity = ?
-       WHERE id = ?`,
-      [vehicle_type, vehicle_number, vehicle_capacity, vehicle_id],
+      `UPDATE vehicles SET ${updateFields.join(", ")} WHERE id = ?`,
+      [...updateValues, vehicle_id],
     );
 
     return res.status(200).json({
-      status: 1,
+      status: "1",
       message: "Vehicle updated successfully",
     });
   } catch (error) {
@@ -1591,6 +1780,63 @@ export const deleteVehicleImage = async (req, res) => {
   }
 };
 
+// export const getAllRequestsForDriver = async (req, res) => {
+//   try {
+//     const { driverId } = req.query;
+
+//     if (!driverId) {
+//       return res.status(400).json({
+//         status: "0",
+//         message: "Driver id is required",
+//         result: {},
+//       });
+//     }
+
+//     const [requests] = await db.query(
+//       `
+//       SELECT
+//         r.*,
+//         u.full_name,
+//         u.image,
+//         u.mobile,
+//         v.vehicle_type
+//       FROM requests r
+//       JOIN userdata u ON r.user_id = u.id
+//       JOIN vehicles v ON v.driver_id = ?
+//       WHERE r.vehicle_type = v.vehicle_type
+//       AND r.status = 'PENDING'
+//       AND r.id NOT IN (
+//         SELECT request_id
+//         FROM request_declines
+//         WHERE driver_id = ?
+//       )
+//       ORDER BY r.id DESC
+//       `,
+//       [driverId, driverId],
+//     );
+
+//     // null → "" convert
+//     const formattedRequest = Object.fromEntries(
+//       Object.entries(requests).map(([key, value]) => [
+//         key,
+//         value === null ? "" : value,
+//       ]),
+//     );
+
+//     return res.status(200).json({
+//       status: "1",
+//       message: "Requests fetched successfully",
+//       result: requests,
+//     });
+//   } catch (error) {
+//     console.error("Get all requests error:", error);
+//     return res.status(500).json({
+//       status: "0",
+//       message: "Server error",
+//     });
+//   }
+// };
+
 export const getAllRequestsForDriver = async (req, res) => {
   try {
     const { driverId } = req.query;
@@ -1609,13 +1855,10 @@ export const getAllRequestsForDriver = async (req, res) => {
         r.*,
         u.full_name,
         u.image,
-        u.mobile,
-        v.vehicle_type
+        u.mobile
       FROM requests r
       JOIN userdata u ON r.user_id = u.id
-      JOIN vehicles v ON v.driver_id = ?
-      WHERE r.vehicle_type = v.vehicle_type
-      AND r.status = 'PENDING'
+      WHERE r.status = 'PENDING'
       AND r.id NOT IN (
         SELECT request_id 
         FROM request_declines 
@@ -1623,21 +1866,23 @@ export const getAllRequestsForDriver = async (req, res) => {
       )
       ORDER BY r.id DESC
       `,
-      [driverId, driverId],
+      [driverId],
     );
 
     // null → "" convert
-    const formattedRequest = Object.fromEntries(
-      Object.entries(requests).map(([key, value]) => [
-        key,
-        value === null ? "" : value,
-      ]),
+    const formattedRequest = requests.map((req) =>
+      Object.fromEntries(
+        Object.entries(req).map(([key, value]) => [
+          key,
+          value === null ? "" : value,
+        ]),
+      ),
     );
 
     return res.status(200).json({
       status: "1",
       message: "Requests fetched successfully",
-      result: requests,
+      result: formattedRequest,
     });
   } catch (error) {
     console.error("Get all requests error:", error);
@@ -1734,6 +1979,32 @@ export const SendOffer = async (req, res) => {
       ],
     );
 
+    const [user] = await db.query(
+      "SELECT fcm_token FROM userdata WHERE id = ?",
+      [userId],
+    );
+
+    console.log(user[0].fcm_token);
+
+    if (user.length > 0 && user[0].fcm_token) {
+      const message = {
+        token: user[0].fcm_token,
+        notification: {
+          title: "New Offer",
+          body: "New Offer",
+        },
+        data: {
+          title: "New Offer",
+          body: "Driver send a new offer",
+        },
+        android: {
+          priority: "high",
+        },
+      };
+
+      await admin.messaging().send(message);
+    }
+
     return res.status(200).json({
       status: "1",
       message: "Offer sent successfully",
@@ -1777,31 +2048,31 @@ export const ChangeStatus = async (req, res) => {
       offer_id,
     ]);
 
-    // const [user] = await db.query(
-    //   "SELECT fcm_token FROM userdata WHERE id = ?",
-    //   [userId],
-    // );
+    const [user] = await db.query(
+      "SELECT fcm_token FROM userdata WHERE id = ?",
+      [userId],
+    );
 
-    // if (user.length > 0 && user[0].fcm_token) {
-    //   const message = {
-    //     token: user[0].fcm_token,
-    //     notification: {
-    //       title: "Ride Status",
-    //       body: `Your ride status is now ${status}`,
-    //     },
-    //     data: {
-    //       title: "Ride Status",
-    //       body: `Your ride status is now ${status}`,
-    //       offer_id: String(offer_id),
-    //       type: "send_offer",
-    //     },
-    //     android: {
-    //       priority: "high",
-    //     },
-    //   };
+    if (user.length > 0 && user[0].fcm_token) {
+      const message = {
+        token: user[0].fcm_token,
+        notification: {
+          title: "Ride Status",
+          body: `Your ride status is now ${status}`,
+        },
+        data: {
+          title: "Ride Status",
+          body: `Your ride status is now ${status}`,
+          offer_id: String(offer_id),
+          type: "send_offer",
+        },
+        android: {
+          priority: "high",
+        },
+      };
 
-    //   await admin.messaging().send(message);
-    // }
+      await admin.messaging().send(message);
+    }
 
     return res.status(200).json({
       status: "1",
@@ -1869,52 +2140,27 @@ export const GetRating = async (req, res) => {
   }
 };
 
-// ===================== check new api =============================
-
 export const sendMessage = async (req, res) => {
   try {
-    const {
-      offer_id,
-      sender_id,
-      sender_type,
-      receiver_id,
-      receiver_type,
-      message,
-    } = req.body;
-
-    let imageUrl = null;
-    if (req.file) {
-      imageUrl = req.file.path;
-    }
+    const { offer_id, sender_id, receiver_id, message } = req.body;
 
     const [result] = await db.query(
       `INSERT INTO chats 
-      (offer_id, sender_id, sender_type, receiver_id, receiver_type, message, image) 
-      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        offer_id,
-        sender_id,
-        sender_type,
-        receiver_id,
-        receiver_type,
-        message,
-        imageUrl,
-      ],
+      (offer_id, sender_id, receiver_id, message) 
+      VALUES (?, ?, ?, ?)`,
+      [offer_id, sender_id, receiver_id, message],
     );
 
     const newMessage = {
-      id: result.insertId,
-      offer_id,
-      sender_id,
-      sender_type,
-      receiver_id,
-      receiver_type,
+      id: String(result.insertId),
+      offer_id: String(offer_id),
+      sender_id: String(sender_id),
+      receiver_id: String(receiver_id),
       message,
     };
 
     const io = getIO();
     io.to(`OFFER_${offer_id}`).emit("receive_message", newMessage);
-    console.log("EMIT ROOM:", `OFFER_${offer_id}`);
 
     res.json({
       status: "1",
@@ -1940,9 +2186,20 @@ export const getChatHistory = async (req, res) => {
       [offer_id],
     );
 
+    const formattedChats = chats.map((chat) => ({
+      ...chat,
+      id: String(chat.id),
+      offer_id: String(chat.offer_id),
+      sender_id: String(chat.sender_id),
+      receiver_id: String(chat.receiver_id),
+      createdAt: new Date(chat.createdAt).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+      }),
+    }));
+
     res.json({
       status: "1",
-      result: chats,
+      result: formattedChats.reverse(),
     });
   } catch (error) {
     res.json({
@@ -1954,44 +2211,58 @@ export const getChatHistory = async (req, res) => {
 
 export const getChatList = async (req, res) => {
   try {
-    let { user_id, user_type } = req.query;
+    let { user_id } = req.query;
     user_id = Number(user_id);
 
     const [chats] = await db.query(
       `
       SELECT 
-        offer_id,
+        c.offer_id,
 
         CASE 
-          WHEN sender_id = ? THEN receiver_id 
-          ELSE sender_id 
-        END AS other_user_id,
+          WHEN c.sender_id = ? THEN c.receiver_id 
+          ELSE c.sender_id 
+        END AS from_id,
 
+        u.full_name,
+        u.image,
+
+        SUBSTRING_INDEX(
+          GROUP_CONCAT(c.message ORDER BY c.createdAt DESC), ',', 1
+        ) AS lastMessage,
+
+        MAX(c.createdAt) as lastTime
+
+      FROM chats c
+
+      LEFT JOIN userdata u 
+      ON u.id = (
         CASE 
-          WHEN sender_id = ? THEN receiver_type 
-          ELSE sender_type 
-        END AS other_user_type,
-
-        SUBSTRING_INDEX(GROUP_CONCAT(message ORDER BY createdAt DESC), ',', 1) AS lastMessage,
-        MAX(createdAt) as lastTime
-
-      FROM chats
+          WHEN c.sender_id = ? THEN c.receiver_id 
+          ELSE c.sender_id 
+        END
+      )
 
       WHERE 
-        (sender_id = ? AND sender_type = ?) 
-        OR 
-        (receiver_id = ? AND receiver_type = ?)
+        c.sender_id = ? 
+        OR c.receiver_id = ?
 
-      GROUP BY offer_id, other_user_id, other_user_type
+      GROUP BY c.offer_id, from_id, u.full_name, u.image
 
       ORDER BY lastTime DESC
       `,
-      [user_id, user_id, user_id, user_type, user_id, user_type],
+      [user_id, user_id, user_id, user_id],
     );
+
+    const updatedChats = chats.map((chat) => ({
+      ...chat,
+      from_id: String(chat.from_id),
+      image: chat.image ? `${process.env.IMAGE_PATH}${chat.image}` : null,
+    }));
 
     res.json({
       status: "1",
-      result: chats,
+      result: updatedChats,
     });
   } catch (error) {
     res.json({
@@ -2037,3 +2308,230 @@ export const getSingleChat = async (req, res) => {
     });
   }
 };
+
+// ===================== check new api =============================
+
+// export const createPaymentIntent = async (req, res) => {
+//   try {
+//     const { amount } = req.body;
+
+//     const paymentIntent = await stripe.paymentIntents.create({
+//       amount: amount * 100,
+//       currency: "inr",
+//       automatic_payment_methods: {
+//         enabled: true,
+//       },
+//     });
+
+//     return res.json({
+//       clientSecret: paymentIntent.client_secret,
+//     });
+//   } catch (err) {
+//     console.log(err);
+//     res.status(500).json({ message: "Payment failed" });
+//   }
+// };
+
+// export const ConfirmOffer = async (req, res) => {
+//   const connection = await db.getConnection();
+
+//   try {
+//     const { userid, driver_id, offer_id, request_id, payment_intent_id } =
+//       req.body;
+
+//     if (
+//       !userid ||
+//       !request_id ||
+//       !driver_id ||
+//       !offer_id ||
+//       !payment_intent_id
+//     ) {
+//       return res.status(400).json({
+//         status: "0",
+//         message: "All fields are required",
+//       });
+//     }
+
+//     const paymentIntent =
+//       await stripe.paymentIntents.retrieve(payment_intent_id);
+
+//     if (paymentIntent.status !== "succeeded") {
+//       return res.status(400).json({
+//         status: "0",
+//         message: "Payment not completed",
+//       });
+//     }
+
+//     await connection.beginTransaction();
+
+//     const [requestData] = await connection.query(
+//       `SELECT
+//         vehicle_type,
+//         drop_address,
+//         drop_lat,
+//         drop_lng,
+//         pick_address,
+//         pick_lat,
+//         pick_lng,
+//         price,
+//         goods_type,
+//         total_weight,
+//         number_of_items,
+//         extra_service,
+//         image,
+//         notes,
+//         date,
+//         time,
+//         temperature,
+//         total_km
+//       FROM requests
+//       WHERE id = ? AND user_id = ?`,
+//       [request_id, userid],
+//     );
+
+//     if (requestData.length === 0) {
+//       await connection.rollback();
+//       return res.status(404).json({
+//         status: "0",
+//         message: "Request not found",
+//       });
+//     }
+
+//     const request = requestData[0];
+
+//     const [updateResult] = await connection.query(
+//       `UPDATE booking_offer
+//        SET
+//         status = 'SCHEDULED',
+//         vehicle_type = ?,
+//         drop_address = ?,
+//         drop_lat = ?,
+//         drop_lng = ?,
+//         pick_address = ?,
+//         pick_lat = ?,
+//         pick_lng = ?,
+//         price = ?,
+//         goods_type = ?,
+//         total_weight = ?,
+//         number_of_items = ?,
+//         extra_service = ?,
+//         request_image = ?,
+//         notes = ?,
+//         date = ?,
+//         time = ?,
+//         temperature = ?,
+//         distance = ?
+//       WHERE id = ? AND request_id = ? AND driver_id = ?`,
+//       [
+//         request.vehicle_type,
+//         request.drop_address,
+//         request.drop_lat,
+//         request.drop_lng,
+//         request.pick_address,
+//         request.pick_lat,
+//         request.pick_lng,
+//         request.price,
+//         request.goods_type,
+//         request.total_weight,
+//         request.number_of_items,
+//         request.extra_service,
+//         request.image,
+//         request.notes,
+//         request.date,
+//         request.time,
+//         request.temperature,
+//         request.total_km,
+//         offer_id,
+//         request_id,
+//         driver_id,
+//       ],
+//     );
+
+//     if (updateResult.affectedRows === 0) {
+//       await connection.rollback();
+//       return res.status(400).json({
+//         status: "0",
+//         message: "Offer not found",
+//       });
+//     }
+
+//     await connection.query(
+//       `DELETE FROM booking_offer
+//        WHERE request_id = ? AND status = 'PENDING'`,
+//       [request_id],
+//     );
+
+//     await connection.query("DELETE FROM requests WHERE id = ?", [request_id]);
+
+//     // await connection.query(
+//     //   `INSERT INTO payments
+//     //   (user_id, offer_id, amount, payment_intent_id, status)
+//     //   VALUES (?, ?, ?, ?, ?)`,
+//     //   [
+//     //     userid,
+//     //     offer_id,
+//     //     paymentIntent.amount / 100,
+//     //     payment_intent_id,
+//     //     paymentIntent.status,
+//     //   ],
+//     // );
+
+//     const title = "Offer Accepted";
+//     const notifyMessage = "Congratulations! Your offer has been accepted.";
+
+//     await connection.query(
+//       `INSERT INTO notifications
+//       (fromId, toId, title, message, date, time)
+//       VALUES (?, ?, ?, ?, ?, ?)`,
+//       [
+//         userid,
+//         driver_id,
+//         title,
+//         notifyMessage,
+//         new Date().toISOString().split("T")[0],
+//         new Date().toLocaleTimeString(),
+//       ],
+//     );
+
+//     // const [user] = await connection.query(
+//     //   "SELECT fcm_token FROM userdata WHERE id = ?",
+//     //   [driver_id],
+//     // );
+
+//     // if (user.length > 0 && user[0].fcm_token) {
+//     //   await admin.messaging().send({
+//     //     token: user[0].fcm_token,
+//     //     notification: {
+//     //       title: "Ride Confirmed",
+//     //       body: "Your offer has been accepted",
+//     //     },
+//     //     data: {
+//     //       title: "Ride Confirmed",
+//     //       body: "Your offer has been accepted",
+//     //       offer_id: String(offer_id),
+//     //       type: "offer_confirm",
+//     //     },
+//     //     android: {
+//     //       priority: "high",
+//     //     },
+//     //   });
+//     // }
+
+//     await connection.commit();
+
+//     return res.status(200).json({
+//       status: "1",
+//       message: "Offer confirmed & payment successful",
+//     });
+//   } catch (error) {
+//     await connection.rollback();
+//     console.error("ConfirmOffer error:", error);
+
+//     return res.status(500).json({
+//       status: "0",
+//       message: "Server error",
+//     });
+//   } finally {
+//     connection.release();
+//   }
+// };

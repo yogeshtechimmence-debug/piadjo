@@ -27,6 +27,7 @@ import {
   getChatHistory,
   getSingleChat,
   getChatList,
+  deleteAccount,
 } from "../../controller/AuthController/auth.controller.js";
 import upload from "../../middleware/imageUpload.js";
 import {
@@ -79,6 +80,8 @@ router.get("/get_offer_booking", GetOfferBooking);
 
 router.get("/get_notification", GetNotification);
 
+router.post("/delete_account", deleteAccount);
+
 // ===================== USer side api =============================
 
 router.post("/send_request", upload.single("image"), sendRequest);
@@ -101,7 +104,16 @@ router.post("/change_driver_status", DriverStatus);
 
 router.get("/get_vehicles", getVehicles);
 
-router.post("/update_vehicle", updateVehicle);
+router.post(
+  "/update_vehicle",
+  upload.fields([
+    { name: "vehicle_image", maxCount: 10 },
+    { name: "driving_licence_image", maxCount: 5 },
+    { name: "vehicle_registration_image", maxCount: 5 },
+    { name: "national_image", maxCount: 5 },
+  ]),
+  updateVehicle,
+);
 
 router.post("/delete_vehicle_image", deleteVehicleImage);
 
@@ -149,27 +161,24 @@ router.put("/update_update", updatePages);
 
 router.post("/send_mail", sendMail);
 
-router.get("/get_all_driver_vehicles", getAllVehicles)
+router.get("/get_all_driver_vehicles", getAllVehicles);
 
 router.post("/approved_user", Approval);
 
 router.post("/block_user", BlockUnblobk);
 
+// ===================== chat route api =============================
+
+router.post("/send_message", upload.single("image"), sendMessage);
+
+router.get("/chat_history", getChatHistory);
+
+router.get("/chat_list", getChatList);
+
+router.get("/single-chat", getSingleChat);
 
 // ===================== check new api =============================
 
-
-// ✅ 1. Send Message (text + image)
-router.post("/send-message", upload.single("image"), sendMessage);
-
-// ✅ 2. Get Chat History (offer wise)
-router.get("/chat-history", getChatHistory);
-
-// ✅ 4. Get Chat List (latest chats)
-router.get("/chat-list", getChatList);
-
-// ✅ 3. Get Single Chat (2 users)
-router.get("/single-chat", getSingleChat);
-
+// router.post("/create-payment-intent", createPaymentIntent);
 
 export default router;
