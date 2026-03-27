@@ -882,33 +882,33 @@ export const sendRequest = async (req, res) => {
       ],
     );
 
-    const [drivers] = await db.query(
-      "SELECT fcm_token FROM userdata WHERE type = 'DRIVER' AND status = 'ACTIVE'",
-    );
+    // const [drivers] = await db.query(
+    //   "SELECT fcm_token FROM userdata WHERE type = 'DRIVER' AND status = 'ACTIVE'",
+    // );
 
-    const tokens = drivers
-      .map((driver) => driver.fcm_token)
-      .filter((token) => token);
+    // const tokens = drivers
+    //   .map((driver) => driver.fcm_token)
+    //   .filter((token) => token);
 
-    if (tokens.length > 0) {
-      const message = {
-        tokens,
-        notification: {
-          title: "New Request",
-          body: "User send New Request",
-        },
-        data: {
-          title: "New Request",
-          body: "User send New Request",
-        },
-        android: {
-          priority: "high",
-        },
-      };
-      ride_status;
+    // if (tokens.length > 0) {
+    //   const message = {
+    //     tokens,
+    //     notification: {
+    //       title: "New Request",
+    //       body: "User send New Request",
+    //     },
+    //     data: {
+    //       title: "New Request",
+    //       body: "User send New Request",
+    //     },
+    //     android: {
+    //       priority: "high",
+    //     },
+    //   };
+    //   ride_status;
 
-      await admin.messaging().sendEachForMulticast(message);
-    }
+    //   await admin.messaging().sendEachForMulticast(message);
+    // }
 
     // Insert ke baad data fetch karo
     const [requestData] = await db.query(
