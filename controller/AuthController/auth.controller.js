@@ -201,10 +201,11 @@ export const AddUserDitails = async (req, res) => {
 
     // null → "" convert
     const formattedUser = Object.fromEntries(
-      Object.entries(user[0]).map(([key, value]) => [
-        key,
-        value === null ? "" : value,
-      ]),
+      Object.entries(user[0]).map(([key, value]) => {
+        if (value === null) return [key, ""];
+        if (["id", "total_ratings"].includes(key)) return [key, String(value)];
+        return [key, value];
+      }),
     );
 
     // agar USER hai to yahi response return
@@ -270,15 +271,32 @@ export const AddUserDitails = async (req, res) => {
 
     let vehicleData = vehicle[0];
 
-    vehicleData.vehicle_images = JSON.parse(vehicleData.vehicle_images || "[]");
+    // JSON parse for images
+    vehicleData.vehicle_images = JSON.parse(
+      vehicleData.vehicle_images || "[]",
+    ).map((img) => ({ ...img, id: String(img.id) }));
+
     vehicleData.driving_licence_images = JSON.parse(
       vehicleData.driving_licence_images || "[]",
-    );
+    ).map((img) => ({ ...img, id: String(img.id) }));
+
     vehicleData.vehicle_registration_images = JSON.parse(
       vehicleData.vehicle_registration_images || "[]",
-    );
-    vehicleData.national_image = JSON.parse(vehicleData.national_image || "[]");
+    ).map((img) => ({ ...img, id: String(img.id) }));
 
+    vehicleData.national_image = JSON.parse(
+      vehicleData.national_image || "[]",
+    ).map((img) => ({ ...img, id: String(img.id) }));
+
+    // convert all numeric IDs to string
+    vehicleData = Object.fromEntries(
+      Object.entries(vehicleData).map(([key, value]) => {
+        if (value === null) return [key, ""];
+        if (["id", "driver_id", "vehicle_capacity"].includes(key))
+          return [key, String(value)];
+        return [key, value];
+      }),
+    );
     return res.json({
       status: "1",
       message: "Driver Ditails Add successfully",
