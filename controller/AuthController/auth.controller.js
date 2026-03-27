@@ -1029,19 +1029,17 @@ export const ViewOffer = async (req, res) => {
       });
     }
 
-    // Function to attach IMAGE_PATH to array of objects
     const attachPathToObjects = (arr) =>
       arr
         ? arr.map((obj) => ({
             ...obj,
+            id: String(obj.id), // image id भी string में convert
             url: `${process.env.IMAGE_PATH}${obj.url}`,
           }))
         : [];
 
-    // Loop through offers and attach vehicle data
     const offersWithVehicle = await Promise.all(
       offers.map(async (offer) => {
-        // Get vehicle for this driver
         const [vehicles] = await db.query(
           "SELECT * FROM vehicles WHERE driver_id = ? LIMIT 1",
           [offer.driver_id],
@@ -1052,6 +1050,9 @@ export const ViewOffer = async (req, res) => {
           const v = vehicles[0];
           vehicleData = {
             ...v,
+            id: String(v.id),
+            driver_id: String(v.driver_id),
+            vehicle_capacity: v.vehicle_capacity ? String(v.vehicle_capacity) : "",
             vehicle_images: attachPathToObjects(
               v.vehicle_images ? JSON.parse(v.vehicle_images) : [],
             ),
@@ -1059,29 +1060,28 @@ export const ViewOffer = async (req, res) => {
               v.national_image ? JSON.parse(v.national_image) : [],
             ),
             driving_licence_images: attachPathToObjects(
-              v.driving_licence_images
-                ? JSON.parse(v.driving_licence_images)
-                : [],
+              v.driving_licence_images ? JSON.parse(v.driving_licence_images) : [],
             ),
             vehicle_registration_images: attachPathToObjects(
               v.vehicle_registration_images
                 ? JSON.parse(v.vehicle_registration_images)
                 : [],
             ),
+            created_at: v.created_at,
           };
         }
 
-        // null → "" convert
-        const formattedRequest = Object.fromEntries(
+        const formattedOffer = Object.fromEntries(
           Object.entries(offer).map(([key, value]) => [
             key,
-            value === null ? "" : value,
+            value === null ? "" : ["id", "driver_id", "user_id", "request_id"].includes(key)
+              ? String(value)
+              : value,
           ]),
         );
 
-        // Attach vehicle object to offer
         return {
-          ...formattedRequest,
+          ...formattedOffer,
           driver_image: offer.driver_image
             ? `${process.env.IMAGE_PATH}${offer.driver_image}`
             : "",
