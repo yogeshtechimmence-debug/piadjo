@@ -2,7 +2,6 @@ import { db } from "../../util/db.js";
 import admin from "../../Config/firebase.js";
 import { getIO } from "../../Soket/socket.js";
 
-
 // ===================== Common api =============================
 
 export const sendOtp = async (req, res) => {
@@ -192,6 +191,13 @@ export const AddUserDitails = async (req, res) => {
     const [user] = await db.query("SELECT * FROM userdata WHERE id=?", [
       user_id,
     ]);
+
+    if (!user.length) {
+      return res.json({
+        status: "0",
+        message: "User not found",
+      });
+    }
 
     // null → "" convert
     const formattedUser = Object.fromEntries(
@@ -862,7 +868,9 @@ export const sendRequest = async (req, res) => {
       "SELECT fcm_token FROM userdata WHERE type = 'DRIVER' AND status = 'ACTIVE'",
     );
 
-    const tokens = drivers.map((driver) => driver.fcm_token).filter((token) => token);
+    const tokens = drivers
+      .map((driver) => driver.fcm_token)
+      .filter((token) => token);
 
     if (tokens.length > 0) {
       const message = {
@@ -879,8 +887,9 @@ export const sendRequest = async (req, res) => {
           priority: "high",
         },
       };
+      ride_status;
 
-      await admin.messaging().sendMulticast(message);
+      await admin.messaging().sendEachForMulticast(message);
     }
 
     // Insert ke baad data fetch karo
