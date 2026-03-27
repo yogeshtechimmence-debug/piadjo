@@ -1,6 +1,7 @@
 import { db } from "../../util/db.js";
 import admin from "../../Config/firebase.js";
 import { getIO } from "../../Soket/socket.js";
+import Stripe from "stripe";
 
 // ===================== Common api =============================
 
@@ -39,7 +40,7 @@ export const sendOtp = async (req, res) => {
           fcm_token,
         };
       } else {
-        return res.status(400).json({
+        return res.status(200).json({
           status: "0",
           message: "Mobile number already exists with different type",
         });
@@ -1277,23 +1278,23 @@ export const ConfirmOffer = async (req, res) => {
     // ]);
 
     // Notification send
-    const title = "Offer Accepted";
-    const notifyMessage =
-      "Congratulations! Your offer has been accepted by the customer.";
+    // const title = "Offer Accepted";
+    // const notifyMessage =
+    //   "Congratulations! Your offer has been accepted by the customer.";
 
-    await db.query(
-      `INSERT INTO notifications
-       (fromId, toId, title, message, date, time)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        userid,
-        driver_id,
-        title,
-        notifyMessage,
-        new Date().toISOString().split("T")[0],
-        new Date().toLocaleTimeString(),
-      ],
-    );
+    // await db.query(
+    //   `INSERT INTO notifications
+    //    (fromId, toId, title, message, date, time)
+    //    VALUES (?, ?, ?, ?, ?, ?)`,
+    //   [
+    //     userid,
+    //     driver_id,
+    //     title,
+    //     notifyMessage,
+    //     new Date().toISOString().split("T")[0],
+    //     new Date().toLocaleTimeString(),
+    //   ],
+    // );
 
     const [user] = await db.query(
       "SELECT fcm_token FROM userdata WHERE id = ?",
