@@ -734,6 +734,11 @@ export const GetNotification = async (req, res) => {
       [id],
     );
 
+    await db.query(
+      "UPDATE notifications SET seen = 'seen' WHERE toId = ? AND seen = 'unseen'",
+      [id],
+    );
+
     return res.json({
       status: "1",
       message: "Notification list",
@@ -747,7 +752,6 @@ export const GetNotification = async (req, res) => {
     });
   }
 };
-
 export const deleteAccount = async (req, res) => {
   try {
     const { id, type } = req.body;
@@ -1053,7 +1057,9 @@ export const ViewOffer = async (req, res) => {
             ...v,
             id: String(v.id),
             driver_id: String(v.driver_id),
-            vehicle_capacity: v.vehicle_capacity ? String(v.vehicle_capacity) : "",
+            vehicle_capacity: v.vehicle_capacity
+              ? String(v.vehicle_capacity)
+              : "",
             vehicle_images: attachPathToObjects(
               v.vehicle_images ? JSON.parse(v.vehicle_images) : [],
             ),
@@ -1061,7 +1067,9 @@ export const ViewOffer = async (req, res) => {
               v.national_image ? JSON.parse(v.national_image) : [],
             ),
             driving_licence_images: attachPathToObjects(
-              v.driving_licence_images ? JSON.parse(v.driving_licence_images) : [],
+              v.driving_licence_images
+                ? JSON.parse(v.driving_licence_images)
+                : [],
             ),
             vehicle_registration_images: attachPathToObjects(
               v.vehicle_registration_images
@@ -1075,9 +1083,11 @@ export const ViewOffer = async (req, res) => {
         const formattedOffer = Object.fromEntries(
           Object.entries(offer).map(([key, value]) => [
             key,
-            value === null ? "" : ["id", "driver_id", "user_id", "request_id"].includes(key)
-              ? String(value)
-              : value,
+            value === null
+              ? ""
+              : ["id", "driver_id", "user_id", "request_id"].includes(key)
+                ? String(value)
+                : value,
           ]),
         );
 
@@ -1272,59 +1282,69 @@ export const ConfirmOffer = async (req, res) => {
 
     await connection.query("DELETE FROM requests WHERE id = ?", [request_id]);
 
-    // await connection.query("UPDATE requests SET status = ? WHERE id = ?", [
-    //   "Received",
-    //   request_id,
-    // ]);
+    await connection.query("UPDATE requests SET status = ? WHERE id = ?", [
+      "Received",
+      request_id,
+    ]);
 
     // Notification send
-    // const title = "Offer Accepted";
-    // const notifyMessage =
-    //   "Congratulations! Your offer has been accepted by the customer.";
+    const title = "Offer Accepted";
+    const notifyMessage =
+      "Congratulations! Your offer has been accepted by the customer.";
 
-    // await db.query(
-    //   `INSERT INTO notifications
-    //    (fromId, toId, title, message, date, time)
-    //    VALUES (?, ?, ?, ?, ?, ?)`,
-    //   [
-    //     userid,
-    //     driver_id,
-    //     title,
-    //     notifyMessage,
-    //     new Date().toISOString().split("T")[0],
-    //     new Date().toLocaleTimeString(),
-    //   ],
-    // );
+    await db.query(
+      `INSERT INTO notifications
+       (fromId, toId, title, message, date, time)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        userid,
+        driver_id,
+        title,
+        notifyMessage,
+        new Date().toISOString().split("T")[0],
+        new Date().toLocaleTimeString(),
+      ],
+    );
 
     const [user] = await db.query(
       "SELECT fcm_token FROM userdata WHERE id = ?",
       [driver_id],
     );
 
-    console.log(user[0].fcm_token);
-
-    if (user.length > 0 && user[0].fcm_token) {
-      const message = {
-        token: user[0].fcm_token,
-        notification: {
-          title: "Ride Confirmed",
-          body: "You have successfully confirmed the ride",
-        },
-        data: {
-          title: "Ride Confirmed",
-          body: "You have successfully confirmed the ride",
-          offer_id: String(offer_id),
-          type: "send_offer",
-        },
-        android: {
-          priority: "high",
-        },
-      };
-
-      await admin.messaging().send(message);
-    }
-
     await connection.commit();
+
+    try {
+      if (user.length > 0 && user[0]?.fcm_token) {
+        const message = {
+          token: user[0].fcm_token,
+          notification: {
+            title: "Ride Confirmed",
+            body: "You have successfully confirmed the ride",
+          },
+          message: {
+            noti_title: "Offer Accepted",
+            noti_alert: "Offer Accepted",
+            noti_key: "Offer Accepted",
+            noti_message: "Ayan sent message",
+            noti_message_ar: "Offer Accepted",
+            noti_sender_id: driver_id,
+            noti_sender_name: "Ayan Ali",
+            noti_sender_image:
+              "https://techimmense.in/tenalpa/uploads/images/USER_IMG_93019.png",
+            noti_receiver_id: userid,
+            noti_type: "",
+            noti_request_id: offer_id,
+          },
+          android: {
+            priority: "high",
+          },
+        };
+
+        await admin.messaging().send(message);
+      }
+    } catch (error) {
+      console.log("FCM Error Ignored:", error.code);
+    }
 
     return res.status(200).json({
       status: "1",
@@ -1373,7 +1393,6 @@ export const cancelRide = async (req, res) => {
       "UPDATE booking_offer SET status = 'CANCEL', cancel_reason = ? WHERE id = ?",
       [cancel_reason, offer_id],
     );
-
     let fcm_token = null;
     let title = "";
     let body = "";
@@ -1404,25 +1423,37 @@ export const cancelRide = async (req, res) => {
       body = "Driver has cancelled the ride";
     }
 
-    if (fcm_token) {
-      const message = {
-        token: fcm_token,
-        notification: {
-          title,
-          body,
-        },
-        data: {
-          title,
-          body,
-          offer_id: String(offer_id),
-          type: "cancel_ride",
-        },
-        android: {
-          priority: "high",
-        },
-      };
+    try {
+      if (fcm_token) {
+        const message = {
+          token: fcm_token,
+          notification: {
+            title,
+            body,
+          },
+          message: {
+            noti_title: "You have a new message",
+            noti_alert: "You have a new message",
+            noti_key: "You have a new message",
+            noti_message: "Ayan sent message",
+            noti_message_ar: "Ayan تم إرسال الرسالة",
+            noti_sender_id: driverId || userid,
+            noti_sender_name: "Ayan Ali",
+            noti_sender_image:
+              "https://techimmense.in/tenalpa/uploads/images/USER_IMG_93019.png",
+            noti_receiver_id: userid || driverId,
+            noti_type: "",
+            noti_request_id: offer_id,
+          },
+          android: {
+            priority: "high",
+          },
+        };
 
-      await admin.messaging().send(message);
+        await admin.messaging().send(message);
+      }
+    } catch (error) {
+      console.log("FCM Error Ignored:", error.code);
     }
 
     return res.status(200).json({
@@ -2009,25 +2040,38 @@ export const SendOffer = async (req, res) => {
       [userId],
     );
 
-    console.log(user[0].fcm_token);
+    try {
+      if (user.length > 0 && user[0]?.fcm_token) {
+        const message = {
+          token: user[0].fcm_token,
+          message: {
+            noti_title: "New Offer Received",
+            noti_alert: "New Offer Received",
+            noti_ke: "New Offer Received",
+            noti_message: `${user[0].full_name} sent message`,
+            noti_message_ar: "New Offer Received",
+            noti_sender_id: driverId,
+            noti_sender_name: `${user[0].full_name}`,
+            noti_sender_image:
+              "https://techimmense.in/tenalpa/uploads/images/USER_IMG_93019.png",
+            noti_receiver_id: userId,
+            noti_type: "",
+            noti_request_id: requestId,
+          },
+          data: {
+            noti_sender_id: String(driverId),
+            noti_receiver_id: String(userId),
+            noti_request_id: String(requestId),
+          },
+          android: {
+            priority: "high",
+          },
+        };
 
-    if (user.length > 0 && user[0].fcm_token) {
-      const message = {
-        token: user[0].fcm_token,
-        notification: {
-          title: "New Offer",
-          body: "New Offer",
-        },
-        data: {
-          title: "New Offer",
-          body: "Driver send a new offer",
-        },
-        android: {
-          priority: "high",
-        },
-      };
-
-      await admin.messaging().send(message);
+        await admin.messaging().send(message);
+      }
+    } catch (error) {
+      console.log("FCM Error Ignored:", error.code);
     }
 
     return res.status(200).json({
@@ -2078,25 +2122,43 @@ export const ChangeStatus = async (req, res) => {
       [userId],
     );
 
-    if (user.length > 0 && user[0].fcm_token) {
-      const message = {
-        token: user[0].fcm_token,
-        notification: {
-          title: "Ride Status",
-          body: `Your ride status is now ${status}`,
-        },
-        data: {
-          title: "Ride Status",
-          body: `Your ride status is now ${status}`,
-          offer_id: String(offer_id),
-          type: "send_offer",
-        },
-        android: {
-          priority: "high",
-        },
-      };
+    try {
+      if (user.length > 0 && user[0]?.fcm_token) {
+        const message = {
+          token: user[0].fcm_token,
+          notification: {
+            title: "Ride Status",
+            body: `Your ride status is now ${status}`,
+          },
+          message: {
+            noti_title: `${status} your ride`,
+            noti_alert: `${status} your ride`,
+            noti_ke: `${status} your ride`,
+            noti_message: `${user[0].full_name} sent message`,
+            noti_message_ar: `${status} your ride`,
+            noti_sender_id: driverId,
+            noti_sender_name: `${user[0].full_name}`,
+            noti_sender_image:
+              "https://techimmense.in/tenalpa/uploads/images/USER_IMG_93019.png",
+            noti_receiver_id: userId,
+            noti_type: "",
+            noti_request_id: offer_id,
+          },
+          data: {
+            title: "Ride Status",
+            body: `Your ride status is now ${status}`,
+            offer_id: String(offer_id),
+            type: "send_offer",
+          },
+          android: {
+            priority: "high",
+          },
+        };
 
-      await admin.messaging().send(message);
+        await admin.messaging().send(message);
+      }
+    } catch (error) {
+      console.log("FCM Error Ignored:", error.code);
     }
 
     return res.status(200).json({
